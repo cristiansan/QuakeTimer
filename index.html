@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Timer a Dos Colores</title>
+  <style>
+    body, html {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+    }
+    .container {
+      display: flex;
+      height: 100vh;
+      width: 100vw;
+    }
+    .half {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 3rem;
+      color: white;
+      cursor: pointer;
+      user-select: none;
+      position: relative;
+      overflow: hidden;
+    }
+    .green { background: #2ecc40; }
+    .red { background: #ff4136; }
+    .timer, .icon {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: 100%;
+      font-size: 10rem; /* Doble del original */
+      font-family: Impact, Arial Black, sans-serif;
+      font-weight: bold;
+      background: rgba(0,0,0,0.2);
+      z-index: 2;
+      color: #fff;
+      transition: opacity 0.3s;
+    }
+    .icon {
+      font-size: 12rem;
+      background: rgba(0,0,0,0.1);
+      font-family: inherit;
+      font-weight: normal;
+    }
+    .hidden {
+      display: none !important;
+    }
+    .blink.blink-active {
+      opacity: 0.4;
+      transition: opacity 0.3s;
+    }
+  </style>
+</head>
+<body>
+  <div id="voz-container" style="position:fixed;top:0;left:0;width:100vw;z-index:9999;display:flex;flex-direction:column;">
+    <div id="voz-wave" style="background:#444;width:100vw;min-height:48px;display:flex;align-items:center;position:relative;">
+      <div id="voz-status" style="position:absolute;left:16px;top:8px;background:rgba(34,34,34,0.8);color:#fff;padding:6px 18px;font-size:1.2rem;border-radius:8px;max-width:350px;z-index:2;">
+        Voz: esperando clic para activar...
+      </div>
+      <canvas id="wave-canvas" width="900" height="40" style="background:transparent;display:block;margin:auto;width:100vw;max-width:100vw;"></canvas>
+      <!-- Botón de pausa/play arriba a la derecha -->
+      <button id="pause-btn"
+        style="
+          position: absolute;
+          top: 50%;
+          right: 32px;
+          transform: translateY(-50%);
+          width: 40px;
+          height: 40px;
+          border-radius: 20px;
+          background: #222;
+          color: #fff;
+          border: none;
+          font-size: 1.3rem;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 10001;
+          cursor: pointer;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.2), 0 0 0 2px #fff, 0 0 0 3px #ffb300;
+          outline: none;
+          transition: box-shadow 0.2s, background 0.2s;
+        "
+        title="Pausar/Continuar"
+      >
+        <span id="pause-icon">&#10073;&#10073;</span>
+      </button>
+    </div>
+  </div>
+  <!-- Botón GO! centrado -->
+  <button id="go-btn"
+    style="
+      position: fixed;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: 120px; height: 120px;
+      border-radius: 60px;
+      background: #111;
+      color: #fff;
+      font-size: 2.5rem;
+      font-family: Impact, Arial Black, sans-serif;
+      font-weight: bold;
+      border: none;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+      cursor: pointer;
+      z-index: 10000;
+      transition: background 0.2s;
+    "
+  >GO!</button>
+  <div class="container">
+    <div class="half green" id="greenHalf">
+      <div class="timer hidden" id="greenTimer"></div>
+      <div class="icon" id="greenIcon" style="color:#fff;">🛡️</div>
+    </div>
+    <div class="half red" id="redHalf">
+      <div class="timer hidden" id="redTimer"></div>
+      <div class="icon" id="redIcon" style="color:#fff;">
+        <!-- Cruz blanca SVG -->
+        <svg width="220" height="220" viewBox="0 0 120 120">
+          <rect x="50" y="20" width="20" height="80" fill="#fff"/>
+          <rect x="20" y="50" width="80" height="20" fill="#fff"/>
+        </svg>
+      </div>
+    </div>
+  </div>
+  <script>
+  // Creamos un solo contexto de audio reutilizable
+  let audioCtx = null;
+
+  // --- PAUSA/PLAY GLOBAL ---
+  let pausedTimer = null;
+  let pausedData = null; // {halfId, timer, timerDiv, iconDiv, countdown, blinkTimer, isPaused}
+  const pauseBtn = document.getElementById('pause-btn');
+  const pauseIcon = document.getElementById('pause-icon');
+
+  // Modifica setupTimer para soportar pausa
+  function setupTimer(halfId, timerId, iconId) {
+    const half = document.getElementById(halfId);
+    const timerDiv = document.getElementById(timerId);
+    const iconDiv = document.getElementById(iconId);
+    let timer = null;
+    let blinkTimer = null;
+    const initialCountdown = 10; // o 30 si prefieres
+    let countdown = initialCountdown;
+    let isPaused = false;
+
+    // Generador de beep usando un contexto global
+    function beep() {
+      if (!audioCtx) return;
+      const oscillator = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      oscillator.type = 'sine';
+      oscillator.frequency.value = 880;
+      gain.gain.value = 0.1;
+      oscillator.connect(gain);
+      gain.connect(audioCtx.destination);
+      oscillator.start();
+      setTimeout(() => {
+        oscillator.stop();
+      }, 100);
+    }
+
+    function stopBlink() {
+      half.classList.remove('blink');
+      half.classList.remove('blink-active');
+      if (blinkTimer) {
+        clearInterval(blinkTimer);
+        blinkTimer = null;
+      }
+    }
+
+    function pause() {
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
+        isPaused = true;
+        pausedTimer = timer;
+        pausedData = {halfId, timerDiv, iconDiv, countdown, blinkTimer, isPaused: true};
+      }
+      if (blinkTimer) {
+        clearInterval(blinkTimer);
+        blinkTimer = null;
+      }
+    }
+
+    function resume() {
+      if (!isPaused) return;
+      isPaused = false;
+      pausedData = null;
+      timer = setInterval(() => {
+        countdown--;
+        timerDiv.textContent = countdown;
+        if (countdown <= 5 && countdown > 0) {
+          beep();
+          if (!half.classList.contains('blink')) {
+            half.classList.add('blink');
+            blinkTimer = setInterval(() => {
+              half.classList.toggle('blink-active');
+            }, 300);
+          }
+        }
+        if (countdown > 5) {
+          stopBlink();
+        }
+        if (countdown <= 0) {
+          clearInterval(timer);
+          timer = null;
+          stopBlink();
+          timerDiv.classList.add('hidden');
+          iconDiv.classList.remove('hidden');
+        }
+      }, 1000);
+    }
+
+    half.addEventListener('click', function handler() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
+      }
+      stopBlink();
+      countdown = initialCountdown;
+      timerDiv.textContent = countdown;
+      timerDiv.classList.remove('hidden');
+      iconDiv.classList.add('hidden');
+      isPaused = false;
+      pausedData = null;
+      timer = setInterval(() => {
+        countdown--;
+        timerDiv.textContent = countdown;
+        if (countdown <= 5 && countdown > 0) {
+          beep();
+          if (!half.classList.contains('blink')) {
+            half.classList.add('blink');
+            blinkTimer = setInterval(() => {
+              half.classList.toggle('blink-active');
+            }, 300);
+          }
+        }
+        if (countdown > 5) {
+          stopBlink();
+        }
+        if (countdown <= 0) {
+          clearInterval(timer);
+          timer = null;
+          stopBlink();
+          timerDiv.classList.add('hidden');
+          iconDiv.classList.remove('hidden');
+        }
+      }, 1000);
+    });
+
+    // Exponer métodos para pausa/play global
+    half._pauseTimer = pause;
+    half._resumeTimer = resume;
+    half._isPaused = () => isPaused;
+    half._getTimer = () => timer;
+    half._getCountdown = () => countdown;
+  }
+
+  setupTimer('greenHalf', 'greenTimer', 'greenIcon');
+  setupTimer('redHalf', 'redTimer', 'redIcon');
+
+  // --- PAUSA/PLAY HANDLER ---
+  pauseBtn.addEventListener('click', function() {
+    // Si hay un timer corriendo, lo pausamos
+    let paused = false;
+    ['greenHalf', 'redHalf'].forEach(id => {
+      const half = document.getElementById(id);
+      if (half._getTimer && half._getTimer()) {
+        half._pauseTimer();
+        paused = true;
+      }
+    });
+    // Si ya estaba pausado, lo reanudamos (busca el que está pausado)
+    if (!paused) {
+      ['greenHalf', 'redHalf'].forEach(id => {
+        const half = document.getElementById(id);
+        if (half._isPaused && half._isPaused()) {
+          half._resumeTimer();
+        }
+      });
+    }
+    // Cambia el icono
+    if (pauseIcon.textContent === "⏸" || pauseIcon.textContent === "❚❚" || pauseIcon.innerHTML === "&#10073;&#10073;") {
+      pauseIcon.textContent = "▶";
+    } else {
+      pauseIcon.textContent = "❚❚";
+    }
+  });
+
+  // Cambia el icono inicial a pausa (❚❚)
+  pauseIcon.textContent = "❚❚";
+
+  // Speech Recognition para activar los timers por voz
+  const vozStatus = document.getElementById('voz-status');
+
+  window.SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (window.SpeechRecognition) {
+    const recognition = new window.SpeechRecognition();
+    recognition.lang = 'es-ES';
+    recognition.continuous = true;
+    recognition.interimResults = true;
+
+    recognition.onstart = function() {
+      vozStatus.textContent = "Voz: escuchando...";
+    };
+    recognition.onresult = function(event) {
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        const transcript = event.results[i][0].transcript.trim().toLowerCase();
+        vozStatus.textContent = `Voz: "${transcript}"`;
+        if (transcript.includes('escudo')) {
+          document.getElementById('greenHalf').click();
+        }
+        if (transcript.includes('mega')) {
+          document.getElementById('redHalf').click();
+        }
+        if (transcript.includes('pausa')) {
+          pauseBtn.click();
+        }
+        if (transcript.includes('sigue')) {
+          if (pauseIcon.textContent === "▶") {
+            pauseBtn.click();
+          }
+        }
+        // Si quieres evitar dobles disparos, puedes agregar un cooldown aquí
+        // if (event.results[i].isFinal) break;
+      }
+    };
+    recognition.onerror = function(event) {
+      vozStatus.textContent = "Voz: error (" + event.error + ")";
+    };
+    recognition.onend = function() {
+      vozStatus.textContent = "Voz: reiniciando...";
+      recognition.start();
+    };
+    window.addEventListener('click', function startOnce() {
+      vozStatus.textContent = "Voz: escuchando...";
+      recognition.start();
+      window.removeEventListener('click', startOnce);
+    });
+  } else {
+    document.getElementById('voz-status').textContent = "Voz: no soportada en este navegador";
+  }
+
+  // --- VISUALIZADOR DE AUDIO ---
+  let micStream = null;
+  let analyser = null;
+  let animationId = null;
+  const canvas = document.getElementById('wave-canvas');
+  const ctx = canvas.getContext('2d');
+
+  function drawWave() {
+    if (!analyser) return;
+    const dataArray = new Uint8Array(analyser.fftSize);
+    analyser.getByteTimeDomainData(dataArray);
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.beginPath();
+    for (let i = 0; i < dataArray.length; i++) {
+      const x = (i / dataArray.length) * canvas.width;
+      const y = (dataArray[i] / 255) * canvas.height;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = "#00eaff";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    animationId = requestAnimationFrame(drawWave);
+  }
+
+  async function startMicVisualizer() {
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const audioCtxVis = new (window.AudioContext || window.webkitAudioContext)();
+      const source = audioCtxVis.createMediaStreamSource(micStream);
+      analyser = audioCtxVis.createAnalyser();
+      analyser.fftSize = 128;
+      source.connect(analyser);
+      drawWave();
+    } catch (e) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.font = "16px Arial";
+      ctx.fillStyle = "#fff";
+      ctx.fillText("Micrófono no disponible", 10, 25);
+    }
+  }
+
+  // Inicia el visualizador junto con el reconocimiento de voz
+  window.addEventListener('click', function startVisualizerOnce() {
+    startMicVisualizer();
+    window.removeEventListener('click', startVisualizerOnce);
+  });
+
+  // Si quieres que la onda se adapte al ancho, puedes actualizar el tamaño del canvas así:
+  function resizeWaveCanvas() {
+    const canvas = document.getElementById('wave-canvas');
+    canvas.width = window.innerWidth;
+  }
+  window.addEventListener('resize', resizeWaveCanvas);
+  resizeWaveCanvas();
+
+  // Cambia la activación por clic en pantalla a solo el botón GO!
+  const goBtn = document.getElementById('go-btn');
+  function activarVoz() {
+    // Inicia reconocimiento y visualizador solo si no se inició antes
+    if (typeof window._vozIniciada === "undefined") {
+      window._vozIniciada = true;
+      if (typeof recognition !== "undefined") {
+        vozStatus.textContent = "Voz: escuchando...";
+        recognition.start();
+      }
+      startMicVisualizer();
+      goBtn.style.display = "none";
+    }
+  }
+  goBtn.addEventListener('click', activarVoz);
+
+  // Elimina los listeners globales de click para iniciar voz/visualizador
+  // (si los tienes en tu código, elimínalos o coméntalos)
+  // window.addEventListener('click', ...);
+  </script>
+</body>
+</html>
