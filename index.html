@@ -65,7 +65,8 @@
       <div id="voz-status" style="position:absolute;left:16px;top:8px;background:rgba(34,34,34,0.8);color:#fff;padding:6px 18px;font-size:1.2rem;border-radius:8px;max-width:350px;z-index:2;">
         Voz: esperando clic para activar...
       </div>
-      <canvas id="wave-canvas" width="900" height="40" style="background:transparent;display:block;margin:auto;width:100vw;max-width:100vw;"></canvas>
+      <!-- Canvas más corto y centrado -->
+      <canvas id="wave-canvas" width="200" height="40" style="background:transparent;display:block;margin:0 auto;max-width:400px;position:relative;z-index:1;"></canvas>
       <!-- Botón de pausa/play arriba a la derecha -->
       <button id="pause-btn"
         style="
@@ -119,6 +120,10 @@
     <div class="half green" id="greenHalf">
       <div class="timer hidden" id="greenTimer"></div>
       <div class="icon" id="greenIcon" style="color:#fff;">🛡️</div>
+      <!-- Texto ESCUDO debajo del timer -->
+      <div style="position:absolute;bottom:32px;left:0;right:0;display:flex;justify-content:center;pointer-events:none;z-index:3;">
+        <span style="font-size:2rem;color:#111;font-family:Impact,Arial Black,sans-serif;font-weight:bold;letter-spacing:2px;">ESCUDO</span>
+      </div>
     </div>
     <div class="half red" id="redHalf">
       <div class="timer hidden" id="redTimer"></div>
@@ -128,6 +133,10 @@
           <rect x="50" y="20" width="20" height="80" fill="#fff"/>
           <rect x="20" y="50" width="80" height="20" fill="#fff"/>
         </svg>
+      </div>
+      <!-- Texto MEGA debajo del timer -->
+      <div style="position:absolute;bottom:32px;left:0;right:0;display:flex;justify-content:center;pointer-events:none;z-index:3;">
+        <span style="font-size:2rem;color:#111;font-family:Impact,Arial Black,sans-serif;font-weight:bold;letter-spacing:2px;">MEGA</span>
       </div>
     </div>
   </div>
@@ -147,7 +156,7 @@
     const iconDiv = document.getElementById(iconId);
     let timer = null;
     let blinkTimer = null;
-    const initialCountdown = 10; // o 30 si prefieres
+    const initialCountdown = 29; // tiempo inicial en segundos
     let countdown = initialCountdown;
     let isPaused = false;
 
@@ -207,9 +216,14 @@
       if (!audioCtx) {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       }
+      // Limpia cualquier timer anterior
       if (timer) {
         clearInterval(timer);
         timer = null;
+      }
+      if (blinkTimer) {
+        clearInterval(blinkTimer);
+        blinkTimer = null;
       }
       stopBlink();
       countdown = initialCountdown;
@@ -218,7 +232,8 @@
       iconDiv.classList.add('hidden');
       isPaused = false;
       pausedData = null;
-      timer = setInterval(() => {
+
+      function tick() {
         countdown--;
         timerDiv.textContent = countdown;
         if (countdown <= 5 && countdown > 0) {
@@ -240,7 +255,13 @@
           timerDiv.classList.add('hidden');
           iconDiv.classList.remove('hidden');
         }
-      }, 1000);
+      }
+
+      // Primer tick a los 500ms, luego cada 1000ms a partir de ahí
+      setTimeout(() => {
+        tick();
+        timer = setInterval(tick, 1000);
+      }, 500);
     });
 
     // Exponer métodos para pausa/play global
@@ -304,18 +325,12 @@
         vozStatus.textContent = `Voz: "${transcript}"`;
         if (transcript.includes('escudo')) {
           if (canTriggerVoiceCommand()) {
-            const greenHalf = document.getElementById('greenHalf');
-            if (!greenHalf._getTimer || !greenHalf._getTimer()) {
-              greenHalf.click();
-            }
+            document.getElementById('greenHalf').click();
           }
         }
         if (transcript.includes('mega')) {
           if (canTriggerVoiceCommand()) {
-            const redHalf = document.getElementById('redHalf');
-            if (!redHalf._getTimer || !redHalf._getTimer()) {
-              redHalf.click();
-            }
+            document.getElementById('redHalf').click();
           }
         }
         if (transcript.includes('pausa')) {
@@ -361,7 +376,8 @@
     ctx.beginPath();
     for (let i = 0; i < dataArray.length; i++) {
       const x = (i / dataArray.length) * canvas.width;
-      const y = (dataArray[i] / 255) * canvas.height;
+      // Más sensible: factor 1.4
+      const y = ((dataArray[i] - 128) * 1.4) + canvas.height / 2;
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
@@ -455,7 +471,7 @@
   let lastVoiceCommandTime = 0;
   function canTriggerVoiceCommand() {
     const now = Date.now();
-    if (now - lastVoiceCommandTime > 1000) { // 1 segundo de cooldown
+    if (now - lastVoiceCommandTime > 400) { // 400 ms de cooldown
       lastVoiceCommandTime = now;
       return true;
     }
