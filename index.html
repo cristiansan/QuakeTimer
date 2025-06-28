@@ -141,7 +141,6 @@
   const pauseBtn = document.getElementById('pause-btn');
   const pauseIcon = document.getElementById('pause-icon');
 
-  // Modifica setupTimer para soportar pausa
   function setupTimer(halfId, timerId, iconId) {
     const half = document.getElementById(halfId);
     const timerDiv = document.getElementById(timerId);
@@ -151,22 +150,6 @@
     const initialCountdown = 10; // o 30 si prefieres
     let countdown = initialCountdown;
     let isPaused = false;
-
-    // Generador de beep usando un contexto global
-    function beep() {
-      if (!audioCtx) return;
-      const oscillator = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      oscillator.type = 'sine';
-      oscillator.frequency.value = 880;
-      gain.gain.value = 0.1;
-      oscillator.connect(gain);
-      gain.connect(audioCtx.destination);
-      oscillator.start();
-      setTimeout(() => {
-        oscillator.stop();
-      }, 100);
-    }
 
     function stopBlink() {
       half.classList.remove('blink');
@@ -239,7 +222,7 @@
         countdown--;
         timerDiv.textContent = countdown;
         if (countdown <= 5 && countdown > 0) {
-          beep();
+          beep(halfId === "greenHalf" ? "escudo" : "mega");
           if (!half.classList.contains('blink')) {
             half.classList.add('blink');
             blinkTimer = setInterval(() => {
@@ -320,20 +303,29 @@
         const transcript = event.results[i][0].transcript.trim().toLowerCase();
         vozStatus.textContent = `Voz: "${transcript}"`;
         if (transcript.includes('escudo')) {
-          document.getElementById('greenHalf').click();
+          if (canTriggerVoiceCommand()) {
+            const greenHalf = document.getElementById('greenHalf');
+            if (!greenHalf._getTimer || !greenHalf._getTimer()) {
+              greenHalf.click();
+            }
+          }
         }
         if (transcript.includes('mega')) {
-          document.getElementById('redHalf').click();
+          if (canTriggerVoiceCommand()) {
+            const redHalf = document.getElementById('redHalf');
+            if (!redHalf._getTimer || !redHalf._getTimer()) {
+              redHalf.click();
+            }
+          }
         }
         if (transcript.includes('pausa')) {
-          pauseBtn.click();
+          if (canTriggerVoiceCommand()) pauseBtn.click();
         }
         if (transcript.includes('sigue')) {
-          if (pauseIcon.textContent === "▶") {
+          if (pauseIcon.textContent === "▶" && canTriggerVoiceCommand()) {
             pauseBtn.click();
           }
         }
-        // Si quieres evitar dobles disparos, puedes agregar un cooldown aquí
         // if (event.results[i].isFinal) break;
       }
     };
@@ -430,6 +422,45 @@
   // Elimina los listeners globales de click para iniciar voz/visualizador
   // (si los tienes en tu código, elimínalos o coméntalos)
   // window.addEventListener('click', ...);
+
+  // Generador de beep usando un contexto global
+  function beep(tipo = "default") {
+    if (!audioCtx) return;
+    const oscillator = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+
+    // Diferentes sonidos según el tipo
+    if (tipo === "escudo") {
+      oscillator.type = 'sine';
+      oscillator.frequency.value = 440; // Grave (A4)
+      gain.gain.value = 0.15;
+    } else if (tipo === "mega") {
+      oscillator.type = 'triangle';
+      oscillator.frequency.value = 880; // Agudo (A5)
+      gain.gain.value = 0.12;
+    } else {
+      oscillator.type = 'square';
+      oscillator.frequency.value = 660; // Intermedio
+      gain.gain.value = 0.1;
+    }
+
+    oscillator.connect(gain);
+    gain.connect(audioCtx.destination);
+    oscillator.start();
+    setTimeout(() => {
+      oscillator.stop();
+    }, 120);
+  }
+
+  let lastVoiceCommandTime = 0;
+  function canTriggerVoiceCommand() {
+    const now = Date.now();
+    if (now - lastVoiceCommandTime > 1000) { // 1 segundo de cooldown
+      lastVoiceCommandTime = now;
+      return true;
+    }
+    return false;
+  }
   </script>
 </body>
 </html>
